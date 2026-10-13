@@ -1,1 +1,1 @@
-# magic-api-2.2.2
+# magic-api-2.2.2 Vulnerability
