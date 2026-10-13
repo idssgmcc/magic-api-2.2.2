@@ -75,3 +75,18 @@ Content-Length: 1175
 PK.....（zip binary, 1175 bytes in total）
 
 Besides SSRF attacks on internal networks and echoing internal network responses, POST /magic/web/push will package the entire site's API scripts + group/data source configurations and send them to any address specified by the attacker, forming a data outbound channel (this is an additional risk not listed in the original report).
+
+
+Recommended Fixes
+
+Authentication: Bind the PUSH permission point to the administrator role and enforce token verification (depending on §8.1); disable this endpoint directly when there is no need for cross-instance synchronization.
+
+Server-side Target Address (Fundamental Solution): Instead of retrieving values ​​from the request header, `magic-push-target` should be a fixed server-side configuration (e.g., `magic-api.push.targets`); when dynamic targeting is necessary, strict validation is required: only HTTP/HTTPS, the resolved IP must match the configured network segment, reject metadata addresses such as loopback/private network/link local/169.254.169.254, restrict ports, and perform secondary verification based on the resolved IP during connection (to prevent DNS rebinding).
+
+Disable Echo: Push should only return success/failure and status codes, without returning third-party response bodies, eliminating the ability to "read internal network".
+
+Correct Export Semantics: An empty `resources` field in `export()` should be treated as "no content" or rejected outright, instead of exporting the entire site as in `root.export(os)`; anonymize sensitive fields such as data source passwords in exported content.
+
+Correcting the direction of secretKey verification: The key is used to verify the authenticity of inbound push requests.
+
+
