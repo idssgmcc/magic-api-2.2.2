@@ -88,3 +88,16 @@ Transfer-Encoding: chunked
 Date: Tue, 13 Oct 2026 10:50:53 GMT
 
 {"code":1,"message":"success","data":"uid=1000(ai) gid=1000(ai) Group=1000(ai),4(adm),20(dialout),24(cdrom),25(floppy),27(sudo),29(audio),30(dip),44(video),46(plugdev),100(users),101(netdev),10 2(scanner),112(bluetooth),117(lpadmin),119(wireshark),123(kaboxer),124(docker)\n","timestamp":1791888653872,"executeTime":10}
+
+
+Recommended Remediation
+
+Authentication and Permission Points: Add `@Valid(authorization = Authorization.SAVE/DELETE)` to the `/resource/**` write interface and ensure §8.1 is effective; it is recommended to create a separate role for write operations, disallowing read-only users from writing.
+
+Script Sandbox (Fundamental Solution): Set an import whitelist for MagicScriptEngine, disabling `java.lang.Runtime`, `java.lang.ProcessBuilder`, `java.lang.Class`, reflection, and `javax.naming.*` (JNDI); or use a custom ClassLoader/SecurityManager for filtering at the JVM level; perform static scanning of saved scripts for dangerous APIs, intercepting and alerting if a vulnerability is detected.
+
+Add Integrity Verification to Write Requests: Change the request body from ROT13(Base64()) to HMAC signature + timestamp + nonce (key stored only on the server), while also preventing CSRF and batch automated malware attacks.
+
+Approval and Auditing: Script save/delete records the operator, source IP, and before/after diffs; production environments can adopt a two-stage "edit-approval-release" approach, or provide a read-only deployment mode (disabling all write interfaces).
+
+Runtime Environment Hardening: Remove the application account's docker/sudo group (current AI is equivalent to root); when containerizing, use only the root file system, drop all capabilities, and restrict outbound network access.
