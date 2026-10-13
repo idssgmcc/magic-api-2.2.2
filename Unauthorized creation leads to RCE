@@ -1,6 +1,6 @@
 Vulnerability Title: Unauthorized Creation Leads to RCE
 
-**Location**
+Vulnerability Location
 
 - `magic-api/.../core/web/MagicResourceController.java#L72-L83`: `/resource/file/{folder}/save` blocks `requireLogin` without `requireLogin`
 
@@ -9,6 +9,8 @@ Vulnerability Title: Unauthorized Creation Leads to RCE
 - `magic-api/.../core/service/MagicResourceStorage.java#L41-L57`: Request body format = `JSON + "\r\n=================================\r\n" + script`
 
 - `magic-api/.../utils/ROT13Utils.java#L50-L57`: Request body is `ROT13(Base64(plaintext))` `magic-api/.../core/service/impl/RequestMagicDynamicRegistry.java#L103-L119`: Register as a public HTTP interface immediately after saving.
+
+Vulnerability Reproduction
 
 Step 1 Create a group
 
