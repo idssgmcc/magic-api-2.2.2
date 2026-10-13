@@ -109,3 +109,13 @@ magic-api side return (confirmed to be connected to our 13306 port):
 ``json
 {"code":1,"message":"success","data":"Failed to obtain JDBC connection: Could not connect to address=(host=192.168.26.1)(port=13306)(type=master) : rogue-server-no-data","timestamp":1791888526838,"executeTime":null}
 ```
+
+Authentication: Add `@Valid(authorization = Authorization.SAVE)` to `/datasource/jdbc/test` and force login (depending on §8.1).
+
+Driver Whitelist: No longer accept `driverClassName` in the request body; only allow drivers declared in the server configuration (e.g., `magic-api.datasource.allowed-drivers`), and prevent `Class.forName(user input)`.
+
+URL Validation + Dangerous Parameter Filtering: Parse the JDBC URL (scheme/host/port/parameters). The host must match the allowed database network segment; reject dangerous parameters: `INIT`, `RUNSCRIPT`, `autoDeserialize`, `queryInterceptors`, `detectCustomCollations`, `allowLoadLocalInfile/allowLocalInfile`, `socketFactory`, `localSocket`, `allowMultiQueries`, etc. (Maintaining a whitelist of parameters by driver is more reliable than a blacklist).
+
+Interface Semantic Narrowing: Change "Test Connection" to "Test Saved Data Source" (driver/url taken from server storage), removing arbitrary input surfaces at the root.
+
+Error masking: Underlying exceptions (currently leaked server version, connection ID, authentication result, Socket error) are not displayed; instead, a unified "connection failed" message is returned, with details only written to the server logs.
